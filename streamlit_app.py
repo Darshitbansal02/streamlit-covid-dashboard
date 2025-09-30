@@ -132,40 +132,52 @@ heatmap = (
 st.altair_chart(heatmap, use_container_width=True)
 
 # Optional: Seaborn/Matplotlib plots
+# Optional: Seaborn/Matplotlib plots
 if st.sidebar.checkbox("Show Seaborn/Matplotlib plots"):
     st.subheader("Seaborn/Matplotlib Versions")
 
+    # Chart 1
     fig, ax = plt.subplots(figsize=(10, 4))
     sns.lineplot(data=data, x='date', y='new_deaths_smoothed', hue='location', ax=ax)
     ax.set_title("COVID-19 Deaths Over Time")
     ax.set_xlabel("")
     ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
-    st.pyplot(fig, clear_figure=True)
+    st.pyplot(fig)
+    plt.close(fig) # Correct
 
+    # Chart 2
     fig2, ax2 = plt.subplots(figsize=(10, 4))
     sns.lineplot(data=data, x='date', y='people_vaccinated_per_hundred', hue='location', ax=ax2)
     ax2.set_title("Vaccination Progress Over Time")
     ax2.set_xlabel("")
     ax2.legend(loc='upper left', bbox_to_anchor=(1, 1))
-    st.pyplot(fig2, clear_figure=True)
+    st.pyplot(fig2)
+    plt.close(fig2) # Correct
 
+    # Chart 3
     fig3, ax3 = plt.subplots(figsize=(6, 6))
     sns.scatterplot(data=data, x='people_vaccinated_per_hundred', y='new_deaths_smoothed', hue='location', ax=ax3)
     ax3.set_title("Deaths vs Vaccinations (scatter)")
-    st.pyplot(fig3, clear_figure=True)
+    st.pyplot(fig3)
+    plt.close(fig3) # Add this line
 
+    # Chart 4
     fig4, ax4 = plt.subplots(figsize=(6, 4))
     sns.barplot(data=cumulative, x='new_deaths_smoothed', y='location', ax=ax4)
     ax4.set_title("Cumulative deaths by country")
-    st.pyplot(fig4, clear_figure=True)
+    st.pyplot(fig4)
+    plt.close(fig4) # Add this line
 
+    # Chart 5
     pivot_data = data.pivot_table(index='location', columns='date', values='new_deaths_smoothed')
     fig5, ax5 = plt.subplots(figsize=(10, 6))
     sns.heatmap(pivot_data, cmap="Reds", cbar_kws={'label': 'Deaths'}, ax=ax5)
     ax5.set_title("Heatmap: Deaths across countries and dates")
-    st.pyplot(fig5, clear_figure=True)
-
+    st.pyplot(fig5)
+    plt.close(fig5) # Add this line
+    
 # CSV Download
 csv = data.to_csv(index=False)
 st.download_button("Download filtered CSV", csv, file_name="filtered_covid_data.csv", mime="text/csv")
+
 
