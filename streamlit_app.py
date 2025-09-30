@@ -1,6 +1,10 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
+
+import matplotlib      
+matplotlib.use('Agg')  
+
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -164,3 +168,4 @@ if st.sidebar.checkbox("Show Seaborn/Matplotlib plots"):
 # CSV Download
 csv = data.to_csv(index=False)
 st.download_button("Download filtered CSV", csv, file_name="filtered_covid_data.csv", mime="text/csv")
+
