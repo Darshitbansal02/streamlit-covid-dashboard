@@ -59,7 +59,7 @@ if data.empty:
 
 # Show table
 st.subheader("Filtered data (first 200 rows)")
-st.dataframe(data.head(200))
+st.dataframe(data.head(200), use_container_width=True)
 
 # Altair Charts
 st.subheader("New deaths (smoothed) over time")
@@ -179,5 +179,6 @@ if st.sidebar.checkbox("Show Seaborn/Matplotlib plots"):
 # CSV Download
 csv = data.to_csv(index=False)
 st.download_button("Download filtered CSV", csv, file_name="filtered_covid_data.csv", mime="text/csv")
+
 
 
