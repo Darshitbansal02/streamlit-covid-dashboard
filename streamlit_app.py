@@ -2,16 +2,20 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 
-import matplotlib      
-matplotlib.use('Agg')  
+import matplotlib
+matplotlib.use('Agg')  # use non-interactive backend for Streamlit
 
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+from streamlit_folium import st_folium
+import folium
+import requests
+
 st.set_page_config(page_title="COVID Data Viz", layout="wide")
 st.title("COVID-19: Deaths & Vaccination — Interactive Dashboard")
 
-# Load data from OWID URL or user upload
+# --- Data loader (keeps core functionality) ---
 @st.cache_data
 def load_data(uploaded_file=None):
     usecols = ['date', 'location', 'new_deaths_smoothed', 'people_vaccinated_per_hundred']
@@ -21,6 +25,7 @@ def load_data(uploaded_file=None):
         url = "https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/owid-covid-data.csv"
         df = pd.read_csv(url, usecols=usecols)
 
+    # parse dates safely
     df['date'] = pd.to_datetime(df['date'], errors='coerce')
     return df
 
@@ -38,20 +43,24 @@ if missing:
 # Sidebar filters
 all_countries = sorted(df['location'].dropna().unique())
 default = ["United States", "India", "Brazil", "United Kingdom"]
+# ensure defaults exist in dataset
+default = [c for c in default if c in all_countries]
 selected_countries = st.sidebar.multiselect("Select countries", all_countries, default)
 
 min_date = df['date'].min().date()
 max_date = df['date'].max().date()
-date_range = st.sidebar.date_input("Date range", [min_date, max_date], min_value=min_date, max_value=max_date)
 
+# date_input may return a single date or a list/tuple of two dates
+date_range = st.sidebar.date_input("Date range", [min_date, max_date], min_value=min_date, max_value=max_date)
 if isinstance(date_range, (tuple, list)) and len(date_range) == 2:
     start, end = pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1])
 else:
     start = end = pd.to_datetime(date_range)
 
-# Filter data
+# Filter data; be explicit about dropping rows where both metrics are missing
 mask = df['location'].isin(selected_countries) & (df['date'] >= start) & (df['date'] <= end)
-data = df.loc[mask, expected].dropna(how='all')
+data = df.loc[mask].copy()
+data = data.dropna(subset=['new_deaths_smoothed', 'people_vaccinated_per_hundred'], how='all')
 
 if data.empty:
     st.warning("No rows match your filters.")
@@ -61,7 +70,7 @@ if data.empty:
 st.subheader("Filtered data (first 200 rows)")
 st.dataframe(data.head(200), use_container_width=True)
 
-# Altair Charts
+# --- Altair Charts ---
 st.subheader("New deaths (smoothed) over time")
 chart_deaths = (
     alt.Chart(data)
@@ -118,9 +127,12 @@ bar_chart = (
 )
 st.altair_chart(bar_chart, use_container_width=True)
 
+# Heatmap (Altair) — keep original but safer: aggregate by date and location (mean) to reduce duplicates
 st.subheader("Heatmap: Vaccination vs Deaths")
+heat_agg = data.groupby(['date', 'location'], as_index=False).agg({'new_deaths_smoothed':'mean',
+                                                                  'people_vaccinated_per_hundred':'mean'})
 heatmap = (
-    alt.Chart(data)
+    alt.Chart(heat_agg)
     .mark_rect()
     .encode(
         x=alt.X('date:T', title='Date'),
@@ -132,55 +144,52 @@ heatmap = (
 st.altair_chart(heatmap, use_container_width=True)
 
 # Optional: Seaborn/Matplotlib plots
-# Optional: Seaborn/Matplotlib plots
 if st.sidebar.checkbox("Show Seaborn/Matplotlib plots"):
     st.subheader("Seaborn/Matplotlib Versions")
 
-    # Chart 1
+    # Chart 1 - Deaths over time
     fig, ax = plt.subplots(figsize=(10, 4))
     sns.lineplot(data=data, x='date', y='new_deaths_smoothed', hue='location', ax=ax)
     ax.set_title("COVID-19 Deaths Over Time")
     ax.set_xlabel("")
     ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
     st.pyplot(fig)
-    plt.close(fig) # Correct
+    plt.close(fig)
 
-    # Chart 2
+    # Chart 2 - Vaccination progress
     fig2, ax2 = plt.subplots(figsize=(10, 4))
     sns.lineplot(data=data, x='date', y='people_vaccinated_per_hundred', hue='location', ax=ax2)
     ax2.set_title("Vaccination Progress Over Time")
     ax2.set_xlabel("")
     ax2.legend(loc='upper left', bbox_to_anchor=(1, 1))
     st.pyplot(fig2)
-    plt.close(fig2) # Correct
+    plt.close(fig2)
 
-    # Chart 3
+    # Chart 3 - Scatter
     fig3, ax3 = plt.subplots(figsize=(6, 6))
     sns.scatterplot(data=data, x='people_vaccinated_per_hundred', y='new_deaths_smoothed', hue='location', ax=ax3)
     ax3.set_title("Deaths vs Vaccinations (scatter)")
     st.pyplot(fig3)
-    plt.close(fig3) # Add this line
+    plt.close(fig3)
 
-    # Chart 4
+    # Chart 4 - Cumulative deaths bar
     fig4, ax4 = plt.subplots(figsize=(6, 4))
     sns.barplot(data=cumulative, x='new_deaths_smoothed', y='location', ax=ax4)
     ax4.set_title("Cumulative deaths by country")
     st.pyplot(fig4)
-    plt.close(fig4) # Add this line
+    plt.close(fig4)
 
-    # Chart 5
-    pivot_data = data.pivot_table(index='location', columns='date', values='new_deaths_smoothed')
+    # Chart 5 - Seaborn heatmap: aggregate by month to limit width
+    data_month = data.copy()
+    data_month['month'] = data_month['date'].dt.to_period('M').dt.to_timestamp()
+    pivot_data = data_month.groupby(['location', 'month'])['new_deaths_smoothed'].mean().unstack(fill_value=0)
     fig5, ax5 = plt.subplots(figsize=(10, 6))
     sns.heatmap(pivot_data, cmap="Reds", cbar_kws={'label': 'Deaths'}, ax=ax5)
-    ax5.set_title("Heatmap: Deaths across countries and dates")
+    ax5.set_title("Heatmap: Deaths across countries (monthly)")
     st.pyplot(fig5)
-    plt.close(fig5) # Add this line
+    plt.close(fig5)
 
-from streamlit_folium import st_folium
-import folium
-import requests
-
-# Sidebar map toggle
+# --- Folium Map (safe handling) ---
 show_map = st.sidebar.checkbox("Show Folium Map")
 
 if show_map:
@@ -211,35 +220,44 @@ if show_map:
         legend_label = "People Vaccinated per 100"
         color_scheme = "YlGnBu"
 
-    # Load world GeoJSON
+    # Load world GeoJSON safely
     geo_url = "https://raw.githubusercontent.com/python-visualization/folium/main/examples/data/world-countries.json"
-    geo_json = requests.get(geo_url).json()
+    geo_json = None
+    try:
+        resp = requests.get(geo_url, timeout=10)
+        resp.raise_for_status()
+        geo_json = resp.json()
+    except Exception as e:
+        st.error(f"Could not load world GeoJSON for choropleth: {e}")
+        st.info("Map requires internet access to load geometries. Choropleth will be skipped.")
+        geo_json = None
 
     # Create base map
     m = folium.Map(location=[20, 0], zoom_start=2, tiles="cartodb positron")
 
-    # Add choropleth
-    folium.Choropleth(
-        geo_data=geo_json,
-        data=map_data,
-        columns=["location", "metric"],
-        key_on="feature.properties.name",
-        fill_color=color_scheme,
-        fill_opacity=0.7,
-        line_opacity=0.2,
-        nan_fill_color="lightgray",
-        legend_name=legend_label
-    ).add_to(m)
+    if geo_json:
+        # Choropleth expects country names to match feature.properties.name.
+        # There can be mismatches (e.g. 'United States' vs 'United States of America').
+        # We'll attempt to plot where matches exist.
+        folium.Choropleth(
+            geo_data=geo_json,
+            data=map_data,
+            columns=["location", "metric"],
+            key_on="feature.properties.name",
+            fill_color=color_scheme,
+            fill_opacity=0.7,
+            line_opacity=0.2,
+            nan_fill_color="lightgray",
+            legend_name=legend_label
+        ).add_to(m)
 
-    # Optional: Tooltip popups
-    for _, row in map_data.iterrows():
-        folium.Marker(
-            location=None,  # no lat/lon data available, skip placement
-            popup=f"{row['location']}: {row['metric']:.2f}"
-        )
-
-    # Display in Streamlit
-    st_data = st_folium(m, width=900, height=500)
+        # Do NOT add markers with location=None. Skip adding markers unless lat/lon are known.
+        # If you want markers, you must provide a country->lat/lon lookup (not included here).
+        st_data = st_folium(m, width=900, height=500)
+    else:
+        # Show the base map only, or show message
+        st.warning("Choropleth unavailable (couldn't fetch GeoJSON). Showing base map.")
+        st_data = st_folium(m, width=900, height=500)
 
 # CSV Download
 csv = data.to_csv(index=False)
