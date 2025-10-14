@@ -175,10 +175,76 @@ if st.sidebar.checkbox("Show Seaborn/Matplotlib plots"):
     ax5.set_title("Heatmap: Deaths across countries and dates")
     st.pyplot(fig5)
     plt.close(fig5) # Add this line
-    
+
+from streamlit_folium import st_folium
+import folium
+import requests
+
+# Sidebar map toggle
+show_map = st.sidebar.checkbox("Show Folium Map")
+
+if show_map:
+    map_type = st.sidebar.radio(
+        "Select map type",
+        ("Deaths Intensity", "Vaccination Progress")
+    )
+
+    st.subheader(f"Global COVID-19 Map — {map_type}")
+
+    # Prepare aggregated data
+    if map_type == "Deaths Intensity":
+        map_data = (
+            data.groupby("location")["new_deaths_smoothed"]
+            .mean()
+            .reset_index()
+            .rename(columns={"new_deaths_smoothed": "metric"})
+        )
+        legend_label = "Average New Deaths (Smoothed)"
+        color_scheme = "YlOrRd"
+    else:
+        map_data = (
+            data.groupby("location")["people_vaccinated_per_hundred"]
+            .max()
+            .reset_index()
+            .rename(columns={"people_vaccinated_per_hundred": "metric"})
+        )
+        legend_label = "People Vaccinated per 100"
+        color_scheme = "YlGnBu"
+
+    # Load world GeoJSON
+    geo_url = "https://raw.githubusercontent.com/python-visualization/folium/main/examples/data/world-countries.json"
+    geo_json = requests.get(geo_url).json()
+
+    # Create base map
+    m = folium.Map(location=[20, 0], zoom_start=2, tiles="cartodb positron")
+
+    # Add choropleth
+    folium.Choropleth(
+        geo_data=geo_json,
+        data=map_data,
+        columns=["location", "metric"],
+        key_on="feature.properties.name",
+        fill_color=color_scheme,
+        fill_opacity=0.7,
+        line_opacity=0.2,
+        nan_fill_color="lightgray",
+        legend_name=legend_label
+    ).add_to(m)
+
+    # Optional: Tooltip popups
+    for _, row in map_data.iterrows():
+        folium.Marker(
+            location=None,  # no lat/lon data available, skip placement
+            popup=f"{row['location']}: {row['metric']:.2f}"
+        )
+
+    # Display in Streamlit
+    st_data = st_folium(m, width=900, height=500)
+
 # CSV Download
 csv = data.to_csv(index=False)
 st.download_button("Download filtered CSV", csv, file_name="filtered_covid_data.csv", mime="text/csv")
+
 
 
 
